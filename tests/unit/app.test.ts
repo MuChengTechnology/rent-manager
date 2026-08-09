@@ -441,9 +441,9 @@ describe('租賃題庫操作介面', () => {
     const answeredMistake = [...document.querySelectorAll<HTMLElement>('[data-attempt-mistake]')]
       .find((item) => item.querySelector('[data-answer-kind="selected"]')?.textContent?.includes('錯誤'))!
     expect(answeredMistake.textContent).toContain('你的作答')
-    expect(answeredMistake.textContent).toContain('A')
+    expect(answeredMistake.textContent).toContain('B')
     expect(answeredMistake.textContent).toContain('正確答案')
-    expect(answeredMistake.textContent).toContain('D')
+    expect(answeredMistake.textContent).toContain('A')
     expect(answeredMistake.textContent).toContain('法源')
     expect([...document.querySelectorAll<HTMLElement>('[data-attempt-mistake]')]
       .some((item) => item.textContent?.includes('未作答'))).toBe(true)
@@ -457,7 +457,7 @@ describe('租賃題庫操作介面', () => {
     expect(document.body.textContent).toContain('尚無模擬考紀錄')
   })
 
-  it('歷史錯題的合法 A-D 排列遭語意竄改時，不顯示答案比較', () => {
+  it('歷史錯題鎖定確切 key，協調竄改舊顯示／正解／排列欄位仍不得偽造 canonical 正解', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0)
     mount(examQuestions, 'mock')
     document.querySelector<HTMLButtonElement>('[data-action="start-mock"]')!.click()
@@ -466,16 +466,46 @@ describe('租賃題庫操作介面', () => {
     document.querySelector<HTMLButtonElement>('[data-action="confirm-submit-mock"]')!.click()
 
     const saved = JSON.parse(localStorage.getItem('rent-exam-history-v1')!)
-    const tampered = saved.mockAttempts[0].mistakes.find((item: { selectedOptionId: string | null }) => item.selectedOptionId)
-    tampered.sourceOptionOrder = ['A', 'B', 'C', 'D']
+    const tampered = saved.mockAttempts[0].mistakes.find((item: { key: string }) => item.key === 'c1-s1-q1')
+    expect(tampered).toBeTruthy()
+    tampered.selectedOptionId = 'B'
+    tampered.displayedSelectedOptionId = 'D'
+    tampered.correctOptionId = 'C'
+    tampered.displayedCorrectOptionId = 'B'
+    tampered.sourceOptionOrder = ['A', 'D', 'C', 'B']
     localStorage.setItem('rent-exam-history-v1', JSON.stringify(saved))
 
     mount(examQuestions, 'mock')
     document.querySelector<HTMLElement>('.attempt-card summary')!.click()
-    const unsafe = [...document.querySelectorAll<HTMLElement>('[data-attempt-mistake]')]
-      .find((item) => item.textContent?.includes('無法安全還原'))!
-    expect(unsafe).toBeTruthy()
+    const restored = document.querySelector<HTMLElement>('[data-attempt-mistake][data-question-key="c1-s1-q1"]')!
+    expect(restored).toBeTruthy()
+    expect(restored.querySelector('[data-answer-kind="selected"]')?.textContent).toContain('B錯誤')
+    expect(restored.querySelector('[data-answer-kind="correct"]')?.textContent).toContain('A正確')
+    expect(restored.querySelector('[data-answer-kind="correct"]')?.textContent).not.toContain('C選項丙')
+    expect(restored.textContent).not.toContain('無法安全還原')
+
+    const reparsed = JSON.parse(localStorage.getItem('rent-exam-history-v1')!)
+    const contradiction = reparsed.mockAttempts[0].mistakes.find((item: { key: string }) => item.key === 'c1-s1-q1')
+    contradiction.selectedOptionId = 'A'
+    localStorage.setItem('rent-exam-history-v1', JSON.stringify(reparsed))
+    mount(examQuestions, 'mock')
+    document.querySelector<HTMLElement>('.attempt-card summary')!.click()
+    const unsafe = document.querySelector<HTMLElement>('[data-attempt-mistake][data-question-key="c1-s1-q1"]')!
+    expect(unsafe.textContent).toContain('無法安全還原')
     expect(unsafe.querySelector('[data-answer-kind]')).toBeNull()
+  })
+
+  it('withLaw 合法題缺少 law_reference 時，答錯結果也顯示固定提示', () => {
+    const bank = examQuestions.map((item) => ({ ...item, law_reference: undefined }))
+    mount(bank, 'mock')
+    document.querySelector<HTMLButtonElement>('[data-action="start-mock"]')!.click()
+    const key = document.querySelector<HTMLElement>('[data-question-key]')!.dataset.questionKey!
+    clickOptionByText('錯誤')
+    document.querySelector<HTMLButtonElement>('[data-action="submit-mock"]')!.click()
+    document.querySelector<HTMLButtonElement>('[data-action="confirm-submit-mock"]')!.click()
+
+    const result = document.querySelector<HTMLElement>(`.result-item[data-question-key="${key}"]`)!
+    expect(result.querySelector('.explanation')?.textContent).toContain('此題庫未提供說明。')
   })
 
   it('舊版模擬考摘要仍顯示章節統計，並提示未保存逐題作答', () => {

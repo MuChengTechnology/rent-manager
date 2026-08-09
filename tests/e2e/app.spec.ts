@@ -331,17 +331,14 @@ test('模擬考錯題於本次結果與歷史 attempt 顯示作答、正解及�
   expect(storedMistake.mistake).toMatchObject({
     questionFingerprint: expect.stringMatching(/^q1-[0-9a-f]{8}$/),
     selectedOptionId: answer.selectedSource,
-    displayedSelectedOptionId: answer.selectedDisplayed,
-    correctOptionId: answer.correctSource,
-    displayedCorrectOptionId: answer.correctDisplayed,
-    sourceOptionOrder: expect.arrayContaining(['A', 'B', 'C', 'D']),
   })
+  expect(Object.keys(storedMistake.mistake).sort()).toEqual(['key', 'questionFingerprint', 'selectedOptionId'])
 
   await page.goto(mockPath)
   await page.locator('.attempt-card summary').first().click()
   const historicalMistake = page.locator(`[data-attempt-mistake][data-question-key="${answer.key}"]`)
-  await expect(historicalMistake).toContainText(`你的作答${answer.selectedDisplayed}${answer.selectedText}`)
-  await expect(historicalMistake).toContainText(`正確答案${answer.correctDisplayed}${answer.correctText}`)
+  await expect(historicalMistake).toContainText(`你的作答${answer.selectedSource}${answer.selectedText}`)
+  await expect(historicalMistake).toContainText(`正確答案${answer.correctSource}${answer.correctText}`)
   await expect(historicalMistake.locator('.explanation')).toContainText(answer.explanation)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 

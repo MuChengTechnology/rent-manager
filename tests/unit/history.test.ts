@@ -41,10 +41,6 @@ const completeMockResults = Array.from({ length: 10 }, (_, chapterIndex) => {
       ...(correct ? {} : {
         questionFingerprint: 'q1-12345678',
         selectedOptionId: answered ? 'B' : null,
-        displayedSelectedOptionId: answered ? 'A' : null,
-        correctOptionId: 'A',
-        displayedCorrectOptionId: 'D',
-        sourceOptionOrder: ['B', 'C', 'D', 'A'],
       }),
     }
   })
@@ -122,16 +118,12 @@ describe('本機學習歷史', () => {
     expect(recorded.mockAttempts[0].mistakes).toContainEqual({
       key: 'c1-s1-q8',
       questionFingerprint: 'q1-12345678',
-      selectedOptionId: 'B', displayedSelectedOptionId: 'A',
-      correctOptionId: 'A', displayedCorrectOptionId: 'D',
-      sourceOptionOrder: ['B', 'C', 'D', 'A'],
+      selectedOptionId: 'B',
     })
     expect(recorded.mockAttempts[0].mistakes).toContainEqual({
       key: 'c2-s1-q9',
       questionFingerprint: 'q1-12345678',
-      selectedOptionId: null, displayedSelectedOptionId: null,
-      correctOptionId: 'A', displayedCorrectOptionId: 'D',
-      sourceOptionOrder: ['B', 'C', 'D', 'A'],
+      selectedOptionId: null,
     })
     expect(parseHistory(recorded)).toEqual(recorded)
   })
@@ -155,9 +147,7 @@ describe('本機學習歷史', () => {
       questionResults: [{
         key: 'c2-s1-q1', chapter: 2, answered: true, correct: false,
         questionFingerprint: 'q1-12345678',
-        selectedOptionId: 'B', displayedSelectedOptionId: 'A',
-        correctOptionId: 'A', displayedCorrectOptionId: 'D',
-        sourceOptionOrder: ['B', 'C', 'D', 'A'],
+        selectedOptionId: 'B',
       }],
     })
 
@@ -173,9 +163,7 @@ describe('本機學習歷史', () => {
         mistakes: [{
           key: 'c2-s1-q1',
           questionFingerprint: 'q1-12345678',
-          selectedOptionId: '<img>', displayedSelectedOptionId: 'A',
-          correctOptionId: 'A', displayedCorrectOptionId: 'B',
-          sourceOptionOrder: ['B', 'C', 'D', 'A'],
+          selectedOptionId: '<img>',
         }],
       }],
     })
@@ -185,7 +173,7 @@ describe('本機學習歷史', () => {
     expect(repaired.mockAttempts[0]).toMatchObject({ correct: 69, total: 100 })
   })
 
-  it('逐題 detail 的當次 A-D source permutation 不完整或重複時一律捨棄', () => {
+  it('逐題 detail 僅保留 key、指紋與 canonical 作答 identity', () => {
     const recorded = recordMockAttempt(emptyHistory(), { ...mockAttempt, questionResults: completeMockResults })
     const repaired = parseHistory({
       ...recorded,
@@ -193,11 +181,21 @@ describe('本機學習歷史', () => {
         ...recorded.mockAttempts[0],
         mistakes: recorded.mockAttempts[0].mistakes?.map((mistake, index) => index
           ? mistake
-          : { ...mistake, sourceOptionOrder: ['A', 'A', 'C', 'D'] }),
+          : {
+              ...mistake,
+              displayedSelectedOptionId: 'D',
+              correctOptionId: 'C',
+              displayedCorrectOptionId: 'B',
+              sourceOptionOrder: ['A', 'B', 'C', 'D'],
+            }),
       }],
     })
 
-    expect(repaired.mockAttempts[0]).not.toHaveProperty('mistakes')
+    expect(repaired.mockAttempts[0].mistakes?.[0]).toEqual({
+      key: completeMockResults.find((result) => !result.correct)!.key,
+      questionFingerprint: 'q1-12345678',
+      selectedOptionId: 'B',
+    })
   })
 
   it('逐題 detail 數量與分數不一致時保留摘要但捨棄不完整回顧', () => {
