@@ -26,6 +26,26 @@ const mockAttempt = {
   ],
 }
 
+const completeMockResults = Array.from({ length: 10 }, (_, chapterIndex) => {
+  const chapter = chapterIndex + 1
+  const correctCount = chapter === 2 ? 6 : 7
+  return Array.from({ length: 10 }, (_, questionIndex) => {
+    const question = questionIndex + 1
+    const answered = chapter !== 2 || question <= 8
+    const correct = question <= correctCount
+    return {
+      key: `c${chapter}-s1-q${question}`,
+      chapter,
+      answered,
+      correct,
+      ...(correct ? {} : {
+        questionFingerprint: 'q1-12345678',
+        selectedOptionId: answered ? 'B' : null,
+      }),
+    }
+  })
+}).flat()
+
 describe('本機學習歷史', () => {
   it('安全遷移舊版資料並正規化不可信欄位', () => {
     const history = parseHistory({
@@ -84,6 +104,110 @@ describe('本機學習歷史', () => {
     expect(once.wrongKeys).toEqual(['c2-s1-q1'])
     expect(once.answered).toBe(98)
     expect(once.correct).toBe(69)
+  })
+
+  it('保存錯誤與未作答題目的最小選項 identity，供歷史 attempt 回顧', () => {
+    const recorded = recordMockAttempt(emptyHistory(), {
+      ...mockAttempt,
+      attemptId: 'attempt-details1',
+      questionResults: completeMockResults,
+    })
+
+    expect(recorded.mockAttempts[0].attemptId).toBe('attempt-details1')
+    expect(recorded.mockAttempts[0].mistakes).toHaveLength(31)
+    expect(recorded.mockAttempts[0].mistakes).toContainEqual({
+      key: 'c1-s1-q8',
+      questionFingerprint: 'q1-12345678',
+      selectedOptionId: 'B',
+    })
+    expect(recorded.mockAttempts[0].mistakes).toContainEqual({
+      key: 'c2-s1-q9',
+      questionFingerprint: 'q1-12345678',
+      selectedOptionId: null,
+    })
+    expect(parseHistory(recorded)).toEqual(recorded)
+  })
+
+  it('全對 attempt 保存空錯題清單，與未保存逐題資料的舊紀錄明確區分', () => {
+    const recorded = recordMockAttempt(emptyHistory(), {
+      ...mockAttempt,
+      attemptId: 'attempt-perfect1',
+      chapters: mockAttempt.chapters.map((chapter) => ({ ...chapter, answered: 10, correct: 10 })),
+      questionResults: completeMockResults.map(({ key, chapter }) => ({ key, chapter, answered: true, correct: true })),
+    })
+
+    expect(recorded.mockAttempts[0]).toMatchObject({ correct: 100, total: 100, mistakes: [] })
+    expect(parseHistory(recorded)).toEqual(recorded)
+  })
+
+  it('逐題結果不完整時不建立可能誤導的錯題回顧', () => {
+    const recorded = recordMockAttempt(emptyHistory(), {
+      ...mockAttempt,
+      attemptId: 'attempt-partial1',
+      questionResults: [{
+        key: 'c2-s1-q1', chapter: 2, answered: true, correct: false,
+        questionFingerprint: 'q1-12345678',
+        selectedOptionId: 'B',
+      }],
+    })
+
+    expect(recorded.mockAttempts[0]).not.toHaveProperty('mistakes')
+  })
+
+  it('逐題 detail 損壞時保留原有 attempt 摘要，但不顯示不可信答案', () => {
+    const recorded = recordMockAttempt(emptyHistory(), mockAttempt)
+    const repaired = parseHistory({
+      ...recorded,
+      mockAttempts: [{
+        ...recorded.mockAttempts[0],
+        mistakes: [{
+          key: 'c2-s1-q1',
+          questionFingerprint: 'q1-12345678',
+          selectedOptionId: '<img>',
+        }],
+      }],
+    })
+
+    expect(repaired.mockAttempts).toHaveLength(1)
+    expect(repaired.mockAttempts[0]).not.toHaveProperty('mistakes')
+    expect(repaired.mockAttempts[0]).toMatchObject({ correct: 69, total: 100 })
+  })
+
+  it('逐題 detail 僅保留 key、指紋與 canonical 作答 identity', () => {
+    const recorded = recordMockAttempt(emptyHistory(), { ...mockAttempt, questionResults: completeMockResults })
+    const repaired = parseHistory({
+      ...recorded,
+      mockAttempts: [{
+        ...recorded.mockAttempts[0],
+        mistakes: recorded.mockAttempts[0].mistakes?.map((mistake, index) => index
+          ? mistake
+          : {
+              ...mistake,
+              displayedSelectedOptionId: 'D',
+              correctOptionId: 'C',
+              displayedCorrectOptionId: 'B',
+              sourceOptionOrder: ['A', 'B', 'C', 'D'],
+            }),
+      }],
+    })
+
+    expect(repaired.mockAttempts[0].mistakes?.[0]).toEqual({
+      key: completeMockResults.find((result) => !result.correct)!.key,
+      questionFingerprint: 'q1-12345678',
+      selectedOptionId: 'B',
+    })
+  })
+
+  it('逐題 detail 數量與分數不一致時保留摘要但捨棄不完整回顧', () => {
+    const recorded = recordMockAttempt(emptyHistory(), { ...mockAttempt, questionResults: completeMockResults })
+    const repaired = parseHistory({
+      ...recorded,
+      mockAttempts: [{ ...recorded.mockAttempts[0], mistakes: recorded.mockAttempts[0].mistakes?.slice(0, 1) }],
+    })
+
+    expect(repaired.mockAttempts).toHaveLength(1)
+    expect(repaired.mockAttempts[0]).not.toHaveProperty('mistakes')
+    expect(repaired.mockAttempts[0]).toMatchObject({ correct: 69, total: 100 })
   })
 
   it('由有效摘要修復遺失的 tombstone，且只保留最近 50 次摘要', () => {

@@ -23,6 +23,13 @@ export interface MockAttemptSummary {
   correct: number
   total: number
   chapters: MockChapterSummary[]
+  mistakes?: MockAttemptMistake[]
+}
+
+export interface MockAttemptMistake {
+  key: string
+  questionFingerprint: string
+  selectedOptionId: string | null
 }
 
 export interface History {
@@ -40,6 +47,8 @@ export interface MockQuestionResult {
   chapter: number
   answered: boolean
   correct: boolean
+  questionFingerprint?: string
+  selectedOptionId?: string | null
 }
 
 export interface RecordMockAttemptInput {
@@ -70,6 +79,8 @@ const isSafeCount = (value: unknown): value is number => Number.isSafeInteger(va
 const isQuestionKey = (value: unknown): value is string => typeof value === 'string' && /^c[1-9]\d*-s[1-9]\d*-q[1-9]\d*$/.test(value)
 const isAttemptId = (value: unknown): value is string => typeof value === 'string' && /^attempt-[A-Za-z0-9_-]{8,80}$/.test(value)
 const isBankKey = (value: unknown): value is BankKey => value === 'withLaw' || value === 'withoutLaw'
+const isOptionId = (value: unknown): value is string => typeof value === 'string' && /^[A-D]$/.test(value)
+const isQuestionFingerprint = (value: unknown): value is string => typeof value === 'string' && /^q1-[0-9a-f]{8}$/.test(value)
 
 export function emptyHistory(): History {
   return {
@@ -95,6 +106,37 @@ function parseMockChapter(value: unknown): MockChapterSummary | null {
   return { chapter: value.chapter as number, total: value.total, answered: value.answered, correct: value.correct }
 }
 
+function parseMockMistake(value: unknown): MockAttemptMistake | null {
+  if (!isRecord(value) || !isQuestionKey(value.key) || !isQuestionFingerprint(value.questionFingerprint)) return null
+  if (value.selectedOptionId !== null && !isOptionId(value.selectedOptionId)) return null
+  return {
+    key: value.key,
+    questionFingerprint: value.questionFingerprint,
+    selectedOptionId: value.selectedOptionId as string | null,
+  }
+}
+
+function parseMockMistakes(value: unknown): MockAttemptMistake[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.length > 100) return undefined
+  const parsed = value.map(parseMockMistake)
+  if (parsed.some((item) => !item)) return undefined
+  const mistakes = parsed as MockAttemptMistake[]
+  if (new Set(mistakes.map((item) => item.key)).size !== mistakes.length) return undefined
+  return mistakes
+}
+
+function buildMockMistakes(results: MockQuestionResult[]): MockAttemptMistake[] | undefined {
+  if (results.length !== 100 || new Set(results.map((result) => result.key)).size !== results.length) return undefined
+  const incorrect = results.filter((result) => !result.correct)
+  if (!incorrect.length) return results.length === 100 ? [] : undefined
+  const parsed = incorrect.map(parseMockMistake)
+  if (parsed.some((item) => !item)) return undefined
+  const mistakes = parsed as MockAttemptMistake[]
+  if (new Set(mistakes.map((item) => item.key)).size !== mistakes.length) return undefined
+  return mistakes
+}
+
 function parseMockAttempt(value: unknown): MockAttemptSummary | null {
   if (!isRecord(value) || !isAttemptId(value.attemptId) || !isSafeCount(value.completedAt) || value.completedAt === 0 || !isBankKey(value.bankKey)) return null
   if (!isSafeCount(value.correct) || !isSafeCount(value.total) || value.total !== 100 || value.correct > value.total || !Array.isArray(value.chapters)) return null
@@ -104,6 +146,8 @@ function parseMockAttempt(value: unknown): MockAttemptSummary | null {
   if (validChapters.length !== 10 || new Set(validChapters.map((chapter) => chapter.chapter)).size !== 10) return null
   if (validChapters.reduce((sum, chapter) => sum + chapter.total, 0) !== value.total) return null
   if (validChapters.reduce((sum, chapter) => sum + chapter.correct, 0) !== value.correct) return null
+  const parsedMistakes = parseMockMistakes(value.mistakes)
+  const mistakes = parsedMistakes?.length === value.total - value.correct ? parsedMistakes : undefined
   return {
     attemptId: value.attemptId,
     completedAt: value.completedAt,
@@ -111,6 +155,7 @@ function parseMockAttempt(value: unknown): MockAttemptSummary | null {
     correct: value.correct,
     total: value.total,
     chapters: [...validChapters].sort((left, right) => left.chapter - right.chapter),
+    ...(mistakes === undefined ? {} : { mistakes }),
   }
 }
 
@@ -202,6 +247,7 @@ export function recordMockAttempt(historyValue: History, input: RecordMockAttemp
     if (!result.answered || !isQuestionKey(result.key)) continue
     if (result.correct) wrongKeys.delete(result.key); else wrongKeys.add(result.key)
   }
+  const mistakes = buildMockMistakes(input.questionResults)
   const attempt: MockAttemptSummary = {
     attemptId: input.attemptId,
     completedAt: input.completedAt,
@@ -209,6 +255,7 @@ export function recordMockAttempt(historyValue: History, input: RecordMockAttemp
     correct,
     total,
     chapters: [...validChapters].sort((left, right) => left.chapter - right.chapter),
+    ...(mistakes === undefined ? {} : { mistakes }),
   }
   return {
     ...history,

@@ -1,7 +1,7 @@
 import { buildMockExam, questionKey, selectQuestions, shuffleQuestionOptions, type Question } from './questions'
 import { annotateQuestionText, ignoredQuestionKeys, questionAnnotationMap, questionAnnotationsSignature, type QuestionAnnotation, type QuestionAnnotationsDocument } from './question-annotations'
-import { aggregateMockChapterPerformance, chapterLearningPerformance, clearHistory, clearMockAttempts, readHistory, recordMockAttempt, recordPracticeAnswer, writeHistory } from './history'
-import { clearStoredSession, hydrateStoredSession, questionBankSignature, readStoredSession, writeStoredSession, type BankKey } from './session'
+import { aggregateMockChapterPerformance, chapterLearningPerformance, clearHistory, clearMockAttempts, readHistory, recordMockAttempt, recordPracticeAnswer, writeHistory, type MockAttemptSummary } from './history'
+import { clearStoredSession, hydrateStoredSession, questionBankSignature, questionContentSignature, readStoredSession, writeStoredSession, type BankKey } from './session'
 import { formatRemaining, remainingSeconds, shouldAutoSubmit } from './timer'
 import type { ExamProfile } from './exam-profiles'
 import { initMobileMenu, renderPrimaryHeader, type NavigationRoutes } from './navigation'
@@ -9,8 +9,9 @@ import { initMobileMenu, renderPrimaryHeader, type NavigationRoutes } from './na
 type Mode = 'practice' | 'chapter-select' | 'mock-start' | 'mock' | 'result' | 'review'
 type ChapterOrder = 'random' | 'sequential'
 type AppRoutes = NavigationRoutes
-type InitRentAppOptions = { profile?: ExamProfile; routes?: AppRoutes; bankLabel?: string; bankKey?: BankKey; initialView?: 'practice' | 'chapter' | 'mock' | 'wrong'; annotations?: QuestionAnnotationsDocument }
+type InitRentAppOptions = { profile?: ExamProfile; routes?: AppRoutes; bankLabel?: string; bankKey?: BankKey; initialView?: 'practice' | 'chapter' | 'mock' | 'wrong'; annotations?: QuestionAnnotationsDocument; historicalQuestionBanks?: Partial<Record<BankKey, Question[]>> }
 
+const OPTION_LABELS = ['A', 'B', 'C', 'D'] as const
 const escapeHtml = (value: string) => value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!)
 const button = (action: string, label: string, extra = '', className = '') => `<button type="button" class="button${className ? ` ${className}` : ''}" data-action="${action}" ${extra}>${label}</button>`
 
@@ -28,6 +29,15 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
   const bankSignature = questionBankSignature(questions, annotationSignature)
   const questionChapterByKey = new Map(questions.map((question) => [questionKey(question), question.chapter_no]))
   const validQuestionKeys = new Set(questionChapterByKey.keys())
+  const historicalQuestionBanks: Partial<Record<BankKey, Question[]>> = { ...options.historicalQuestionBanks, [bankKey]: questions }
+  const historicalQuestionsByBank = Object.fromEntries(Object.entries(historicalQuestionBanks).map(([key, bankQuestions]) => [
+    key,
+    new Map((bankQuestions ?? []).map((question) => [questionKey(question), question])),
+  ])) as Partial<Record<BankKey, Map<string, Question>>>
+  const historicalQuestionFingerprint = (question: Question): string => {
+    const annotation = annotationsByKey.get(questionKey(question))
+    return questionContentSignature(question, annotation ? JSON.stringify(annotation) : '')
+  }
   const availableChapters = [...new Set(questions.map((question) => question.chapter_no))].sort((left, right) => left - right)
   const readCurrentHistory = () => {
     const history = readHistory(historyKey)
@@ -170,12 +180,21 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
       bankKey,
       chapters,
       questionResults: examQuestions.map((question) => {
-        const answer = examAnswers[questionKey(question)]
+        const key = questionKey(question)
+        const sourceQuestion = historicalQuestionsByBank[bankKey]?.get(key)
+        const displayedSelectedOptionId = examAnswers[key] ?? null
+        const optionOrder = examOptionOrders[key] ?? [...OPTION_LABELS]
+        const sourceOptionId = (displayedOptionId: string | null) => displayedOptionId
+          ? optionOrder[OPTION_LABELS.indexOf(displayedOptionId as typeof OPTION_LABELS[number])]
+          : null
+        const selectedOptionId = sourceOptionId(displayedSelectedOptionId)
         return {
-          key: questionKey(question),
+          key,
           chapter: question.chapter_no,
-          answered: Boolean(answer),
-          correct: Boolean(answer) && answer === question.answer,
+          answered: Boolean(displayedSelectedOptionId),
+          correct: Boolean(displayedSelectedOptionId) && displayedSelectedOptionId === question.answer,
+          questionFingerprint: sourceQuestion ? historicalQuestionFingerprint(sourceQuestion) : undefined,
+          selectedOptionId,
         }
       }),
     }), historyKey)
@@ -189,6 +208,24 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
     return `<button type="button" class="option${correctness}" data-option="${escapeHtml(option.id)}" aria-pressed="${selected}"><b>${escapeHtml(option.id)}</b><span>${escapeHtml(option.text)}</span></button>`
   }).join('')}</div>`
   const renderExplanation = (question: Question, action = 'toggle-explanation', open = explanationOpen) => question.law_reference ? `${button(action, open ? '收合詳解' : '查看詳解')} ${open ? `<aside class="explanation">${escapeHtml(question.law_reference)}</aside>` : ''}` : ''
+  const renderAnswerComparison = (selectedLabel: string | null, selectedText: string | null, correctLabel: string, correctText: string) => `<dl class="answer-comparison" aria-label="作答與正確答案比較"><div class="answer-comparison-row selected-answer" data-answer-kind="selected"><dt>你的作答</dt><dd>${selectedLabel && selectedText ? `<b>${escapeHtml(selectedLabel)}</b><span>${escapeHtml(selectedText)}</span>` : '<strong>未作答</strong>'}</dd></div><div class="answer-comparison-row correct-answer" data-answer-kind="correct"><dt>正確答案</dt><dd><b>${escapeHtml(correctLabel)}</b><span>${escapeHtml(correctText)}</span></dd></div></dl>`
+  const renderDirectExplanation = (question: Question) => question.law_reference
+    ? `<aside class="explanation"><strong>說明</strong><p>${escapeHtml(question.law_reference)}</p></aside>`
+    : '<aside class="explanation"><strong>說明</strong><p>此題庫未提供說明。</p></aside>'
+  const renderHistoricalMistakes = (attempt: MockAttemptSummary) => {
+    if (attempt.mistakes === undefined) return '<section class="attempt-review"><h4>該次錯誤題目回顧</h4><p class="history-detail-note">舊紀錄未保存逐題作答，章節統計仍可正常查看。</p></section>'
+    if (!attempt.mistakes.length) return '<section class="attempt-review"><h4>該次錯誤題目回顧</h4><p class="history-detail-note success">本次沒有錯誤或未作答題目。</p></section>'
+    const bankQuestions = historicalQuestionsByBank[attempt.bankKey]
+    return `<section class="attempt-review"><h4>該次錯誤題目回顧</h4><p class="history-detail-note">共 ${attempt.mistakes.length} 題答錯或未作答；以下依當次錯題順序列出。</p><div class="attempt-mistake-list">${attempt.mistakes.map((mistake) => {
+      const question = bankQuestions?.get(mistake.key)
+      if (!question || mistake.questionFingerprint !== historicalQuestionFingerprint(question)) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">題庫目前無法載入或內容已更新，這一題無法安全還原。</p></article>`
+      const selectedText = mistake.selectedOptionId ? question.options.find((option) => option.id === mistake.selectedOptionId)?.text ?? null : null
+      const correctText = question.options.find((option) => option.id === question.answer)?.text
+      if (mistake.selectedOptionId === question.answer || (mistake.selectedOptionId && !selectedText) || !correctText) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">無法安全還原。</p></article>`
+      const annotation = annotationsByKey.get(mistake.key)
+      return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="eyebrow">第 ${question.chapter_no} 章・題庫第 ${question.question_no} 題・${mistake.selectedOptionId ? '✗ 答錯' : '— 未作答'}</p>${renderQuestionAnnotation(annotation)}<h5>${escapeHtml(annotateQuestionText(question, annotation))}</h5>${renderAnswerComparison(mistake.selectedOptionId, selectedText, question.answer, correctText)}<aside class="explanation"><strong>說明</strong><p>${escapeHtml(question.law_reference ?? '此題庫未提供說明。')}</p></aside></article>`
+    }).join('')}</div></section>`
+  }
   const renderQuestionAnnotation = (annotation?: QuestionAnnotation) => annotation
     ? `<aside class="question-annotation ${annotation.type}" data-annotation-type="${annotation.type}" role="note"><strong>${annotation.type === 'ignore' ? '此題可忽略' : '題目文字提示'}</strong><p>${escapeHtml(annotation.message)}</p></aside>`
     : ''
@@ -201,11 +238,11 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
   const renderMockHistory = () => {
     const history = readCurrentHistory()
     if (!history.mockAttempts.length) {
-      return '<section class="card history-panel"><p class="eyebrow">Local History</p><h2>歷史模擬考表現</h2><p>尚無模擬考紀錄。完成並交卷後，會在此保存各章結果分布；不會保存該次題目內容或題序。</p></section>'
+      return '<section class="card history-panel"><p class="eyebrow">Local History</p><h2>歷史模擬考表現</h2><p>尚無模擬考紀錄。完成並交卷後，會在此保存各章結果分布與錯題回顧所需的最小選項識別；不會保存完整題目、四個選項或整份題序。</p></section>'
     }
     const aggregate = aggregateMockChapterPerformance(history)
     const attempts = [...history.mockAttempts].reverse()
-    return `<section class="card history-panel"><div class="history-heading"><div><p class="eyebrow">Local History</p><h2>歷史模擬考表現</h2><p>共 ${history.mockAttempts.length} 次模擬考；紀錄只保存在此瀏覽器。</p></div>${button('clear-mock-history', '清除模擬考紀錄', '', 'destructive-outline-button')}</div>${confirmingClearMockHistory ? `<div class="confirm" role="alert"><p>確定清除所有模擬考結果分布？錯題與累計作答不受影響。</p><div class="action-group">${button('confirm-clear-mock-history', '確認清除', '', 'destructive-button')}${button('cancel-clear-mock-history', '取消', '', 'secondary-button')}</div></div>` : ''}<h3>歷次合計章節正確率</h3><div class="performance-grid">${aggregate.map((item) => `<article class="performance-card"><strong>第 ${item.chapter} 章</strong><span>${item.correct} / ${item.total} 題</span><b>${item.rate}%</b><progress data-mock-chapter-rate="${item.chapter}" max="100" value="${item.rate}" aria-label="第 ${item.chapter} 章歷次正確率 ${item.rate}%"></progress></article>`).join('')}</div><h3>每次模擬考結果</h3><div class="attempt-list">${attempts.map((attempt) => `<details class="attempt-card"><summary><span>${escapeHtml(new Date(attempt.completedAt).toLocaleString('zh-TW'))}・${attempt.bankKey === 'withLaw' ? '有詳解題庫' : '只有答案題庫'}</span><strong>${attempt.correct} / ${attempt.total}（${Math.round(attempt.correct / attempt.total * 100)}%）</strong></summary><div class="performance-grid compact">${attempt.chapters.map((chapter) => { const chapterRate = Math.round(chapter.correct / chapter.total * 100); return `<article class="performance-card"><strong>第 ${chapter.chapter} 章</strong><span>${chapter.correct} / ${chapter.total} 題</span><b>${chapterRate}%</b><progress max="100" value="${chapterRate}" aria-label="第 ${chapter.chapter} 章本次正確率 ${chapterRate}%"></progress></article>` }).join('')}</div></details>`).join('')}</div></section>`
+    return `<section class="card history-panel"><div class="history-heading"><div><p class="eyebrow">Local History</p><h2>歷史模擬考表現</h2><p>共 ${history.mockAttempts.length} 次模擬考；紀錄只保存在此瀏覽器。</p></div>${button('clear-mock-history', '清除模擬考紀錄', '', 'destructive-outline-button')}</div>${confirmingClearMockHistory ? `<div class="confirm" role="alert"><p>確定清除所有模擬考結果分布？錯題與累計作答不受影響。</p><div class="action-group">${button('confirm-clear-mock-history', '確認清除', '', 'destructive-button')}${button('cancel-clear-mock-history', '取消', '', 'secondary-button')}</div></div>` : ''}<h3>歷次合計章節正確率</h3><div class="performance-grid">${aggregate.map((item) => `<article class="performance-card"><strong>第 ${item.chapter} 章</strong><span>${item.correct} / ${item.total} 題</span><b>${item.rate}%</b><progress data-mock-chapter-rate="${item.chapter}" max="100" value="${item.rate}" aria-label="第 ${item.chapter} 章歷次正確率 ${item.rate}%"></progress></article>`).join('')}</div><h3>每次模擬考結果</h3><div class="attempt-list">${attempts.map((attempt) => `<details class="attempt-card"><summary><span>${escapeHtml(new Date(attempt.completedAt).toLocaleString('zh-TW'))}・${attempt.bankKey === 'withLaw' ? '有詳解題庫' : '只有答案題庫'}</span><strong>${attempt.correct} / ${attempt.total}（${Math.round(attempt.correct / attempt.total * 100)}%）</strong></summary><div class="performance-grid compact">${attempt.chapters.map((chapter) => { const chapterRate = Math.round(chapter.correct / chapter.total * 100); return `<article class="performance-card"><strong>第 ${chapter.chapter} 章</strong><span>${chapter.correct} / ${chapter.total} 題</span><b>${chapterRate}%</b><progress max="100" value="${chapterRate}" aria-label="第 ${chapter.chapter} 章本次正確率 ${chapterRate}%"></progress></article>` }).join('')}</div>${renderHistoricalMistakes(attempt)}</details>`).join('')}</div></section>`
   }
   const renderMockStart = () => {
     root.innerHTML = `${renderHeader()}<main class="single-column"><section class="card"><p class="eyebrow">Mock Exam</p><h1>120 分鐘模擬考</h1><p>系統會從第 1 至第 10 章，每章各隨機抽取 10 題，共 100 題；經實際課程註記為「可忽略」的題目不納入抽題。每次開始模擬考都會重新抽題並隨機重排 A、B、C、D 選項，正確答案會同步調整；作答時間為 120 分鐘，交卷後可查看各章統計與逐題答案。</p>${button('start-mock', '開始模擬考', mockError ? 'disabled' : '')}${mockError ? `<p class="feedback error" role="alert">${escapeHtml(mockError)}</p>` : ''}</section>${renderMockHistory()}</main>`
@@ -243,7 +280,20 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
   const renderResult = () => {
     const correct = examQuestions.filter((question) => examAnswers[questionKey(question)] === question.answer).length
     const byChapter = Array.from({ length: 10 }, (_, index) => index + 1).map((chapter) => ({ chapter, total: examQuestions.filter((q) => q.chapter_no === chapter), correct: examQuestions.filter((q) => q.chapter_no === chapter && examAnswers[questionKey(q)] === q.answer).length }))
-    root.innerHTML = `${renderHeader()}<main class="app-shell"><section class="card results"><h1>模擬考成績</h1><p class="score">${correct} / 100 題（${correct}%）</p><a class="button secondary-button" href="${escapeHtml(routes.practice)}">返回練習首頁</a><h2>章節統計</h2><ul>${byChapter.map(({ chapter, total, correct: chapterCorrect }) => `<li>第 ${chapter} 章：${chapterCorrect} / ${total.length} 題正確</li>`).join('')}</ul><h2>逐題答案</h2>${examQuestions.map((question, index) => { const key = questionKey(question); const open = resultExplanations.has(key); const annotation = annotationsByKey.get(key); return `<article class="result-item" data-question-key="${key}"><p>第 ${index + 1} 題・你的答案：${escapeHtml(examAnswers[key] ?? '未作答')}；正確答案：${escapeHtml(question.answer)}・${examAnswers[key] === question.answer ? '✓ 正確' : '✗ 錯誤'}</p>${renderQuestionAnnotation(annotation)}<h3>${escapeHtml(annotateQuestionText(question, annotation))}</h3>${renderExplanation(question, 'toggle-result-explanation', open)}</article>` }).join('')}</section></main>`
+    root.innerHTML = `${renderHeader()}<main class="result-page"><section class="card results"><h1>模擬考成績</h1><p class="score">${correct} / 100 題（${correct}%）</p><a class="button secondary-button" href="${escapeHtml(routes.practice)}">返回練習首頁</a><h2>章節統計</h2><ul>${byChapter.map(({ chapter, total, correct: chapterCorrect }) => `<li>第 ${chapter} 章：${chapterCorrect} / ${total.length} 題正確</li>`).join('')}</ul><h2>逐題答案</h2>${examQuestions.map((question, index) => {
+      const key = questionKey(question)
+      const selected = examAnswers[key] ?? null
+      const isCorrect = selected === question.answer
+      const open = resultExplanations.has(key)
+      const annotation = annotationsByKey.get(key)
+      const selectedText = selected ? question.options.find((option) => option.id === selected)?.text ?? null : null
+      const correctText = question.options.find((option) => option.id === question.answer)?.text ?? ''
+      const comparison = isCorrect ? '' : renderAnswerComparison(selected, selectedText, question.answer, correctText)
+      const status = isCorrect
+        ? `你的答案：${selected}；正確答案：${question.answer}・✓ 正確`
+        : selected ? '✗ 答錯' : '— 未作答'
+      return `<article class="result-item" data-question-key="${key}"><p class="result-status">第 ${index + 1} 題・${status}</p>${renderQuestionAnnotation(annotation)}<h3>${escapeHtml(annotateQuestionText(question, annotation))}</h3>${comparison}${isCorrect ? renderExplanation(question, 'toggle-result-explanation', open) : renderDirectExplanation(question)}</article>`
+    }).join('')}</section></main>`
     bind()
   }
   const renderReview = () => {

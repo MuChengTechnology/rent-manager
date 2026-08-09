@@ -3,6 +3,7 @@ import {
   hydrateStoredSession,
   parseStoredSession,
   questionBankSignature,
+  questionContentSignature,
   sessionSummary,
   type StoredMockSession,
   type StoredPracticeSession,
@@ -51,6 +52,21 @@ const validPractice: StoredPracticeSession = {
 }
 
 describe('中斷續作 session contract', () => {
+  it('每題內容指紋涵蓋題幹、選項文字、正解與說明，且不受選項陣列順序影響', () => {
+    const original = { ...question(1, 1), law_reference: '原說明' }
+    const signature = questionContentSignature(original)
+    const changedQuestions = [
+      { ...original, question: '更新後題幹？' },
+      { ...original, options: original.options.map((option) => option.id === 'A' ? { ...option, text: '更新後選項' } : option) },
+      { ...original, answer: 'B' },
+      { ...original, law_reference: '更新後說明' },
+    ]
+
+    for (const changed of changedQuestions) expect(questionContentSignature(changed)).not.toBe(signature)
+    expect(questionContentSignature({ ...original, options: [...original.options].reverse() })).toBe(signature)
+    expect(questionContentSignature(original, '更新後題目註記')).not.toBe(signature)
+  })
+
   it('以 stable key 還原題目順序與目前作答狀態', () => {
     const restored = hydrateStoredSession(validPractice, questions, 'withLaw', 'chapter')
 
