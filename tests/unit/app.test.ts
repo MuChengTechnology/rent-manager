@@ -294,6 +294,27 @@ describe('租賃題庫操作介面', () => {
     expect(JSON.parse(localStorage.getItem('rent-exam-history-v1')!).correct).toBe(1)
   })
 
+  it('模擬考答錯時以文字列出當次作答選項、正確選項與說明', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    mount(examQuestions, 'mock')
+    document.querySelector<HTMLButtonElement>('[data-action="start-mock"]')!.click()
+    const key = document.querySelector<HTMLElement>('[data-question-key]')!.dataset.questionKey!
+
+    clickOptionByText('錯誤')
+    document.querySelector<HTMLButtonElement>('[data-action="submit-mock"]')!.click()
+    document.querySelector<HTMLButtonElement>('[data-action="confirm-submit-mock"]')!.click()
+
+    const result = document.querySelector<HTMLElement>(`.result-item[data-question-key="${key}"]`)!
+    expect(result.querySelector('[data-answer-kind="selected"]')?.textContent).toContain('你的作答')
+    expect(result.querySelector('[data-answer-kind="selected"]')?.textContent).toContain('A')
+    expect(result.querySelector('[data-answer-kind="selected"]')?.textContent).toContain('錯誤')
+    expect(result.querySelector('[data-answer-kind="correct"]')?.textContent).toContain('正確答案')
+    expect(result.querySelector('[data-answer-kind="correct"]')?.textContent).toContain('D')
+    expect(result.querySelector('[data-answer-kind="correct"]')?.textContent).toContain('正確')
+    result.querySelector<HTMLButtonElement>('[data-action="toggle-result-explanation"]')!.click()
+    expect(document.querySelector<HTMLElement>(`.result-item[data-question-key="${key}"]`)!.textContent).toContain('法源')
+  })
+
   it('模擬考排除 ignore 題，且註記變更會更新 session fingerprint', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5)
     const bank = Array.from({ length: 10 }, (_, chapter) =>
@@ -397,7 +418,8 @@ describe('租賃題庫操作介面', () => {
     expect(history.wrongKeys).toContain(firstKey)
   })
 
-  it('模擬考只保存結果分布摘要，重新進入可查看並單獨清除紀錄', () => {
+  it('模擬考保存錯題 identity，重新進入可回顧作答、正解與說明並單獨清除紀錄', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
     mount(examQuestions, 'mock')
     document.querySelector<HTMLButtonElement>('[data-action="start-mock"]')!.click()
     clickOptionByText('錯誤')
@@ -409,12 +431,24 @@ describe('租賃題庫操作介面', () => {
     expect(saved.mockAttempts[0]).toMatchObject({ correct: 0, total: 100 })
     expect(saved.mockAttempts[0].chapters).toHaveLength(10)
     expect(saved.mockAttempts[0]).not.toHaveProperty('questionKeys')
+    expect(saved.mockAttempts[0].mistakes).toHaveLength(100)
 
     mount(examQuestions, 'mock')
     expect(document.body.textContent).toContain('歷史模擬考表現')
     expect(document.body.textContent).toContain('共 1 次模擬考')
     expect(document.body.textContent).toContain('第 1 章')
     expect(document.querySelector<HTMLProgressElement>('[data-mock-chapter-rate="1"]')?.max).toBe(100)
+    document.querySelector<HTMLElement>('.attempt-card summary')!.click()
+    expect(document.body.textContent).toContain('該次錯誤題目回顧')
+    const answeredMistake = [...document.querySelectorAll<HTMLElement>('[data-attempt-mistake]')]
+      .find((item) => item.querySelector('[data-answer-kind="selected"]')?.textContent?.includes('錯誤'))!
+    expect(answeredMistake.textContent).toContain('你的作答')
+    expect(answeredMistake.textContent).toContain('A')
+    expect(answeredMistake.textContent).toContain('正確答案')
+    expect(answeredMistake.textContent).toContain('D')
+    expect(answeredMistake.textContent).toContain('法源')
+    expect([...document.querySelectorAll<HTMLElement>('[data-attempt-mistake]')]
+      .some((item) => item.textContent?.includes('未作答'))).toBe(true)
     document.querySelector<HTMLButtonElement>('[data-action="clear-mock-history"]')!.click()
     expect(document.body.textContent).toContain('確定清除所有模擬考結果分布')
     document.querySelector<HTMLButtonElement>('[data-action="confirm-clear-mock-history"]')!.click()
@@ -423,6 +457,45 @@ describe('租賃題庫操作介面', () => {
     expect(cleared.mockAttempts).toEqual([])
     expect(cleared.wrongKeys).toHaveLength(1)
     expect(document.body.textContent).toContain('尚無模擬考紀錄')
+  })
+
+  it('舊版模擬考摘要仍顯示章節統計，並提示未保存逐題作答', () => {
+    const chapters = Array.from({ length: 10 }, (_, index) => ({ chapter: index + 1, total: 10, answered: 10, correct: 8 }))
+    localStorage.setItem('rent-exam-history-v1', JSON.stringify({
+      version: 2,
+      answered: 100,
+      correct: 80,
+      wrongKeys: [],
+      recordedExamIds: ['attempt-legacy01'],
+      chapterStats: {},
+      mockAttempts: [{ attemptId: 'attempt-legacy01', completedAt: 1_000, bankKey: 'withLaw', correct: 80, total: 100, chapters }],
+    }))
+
+    mount(examQuestions, 'mock')
+    document.querySelector<HTMLElement>('.attempt-card summary')!.click()
+
+    expect(document.body.textContent).toContain('80 / 100')
+    expect(document.body.textContent).toContain('舊紀錄未保存逐題作答')
+    expect(document.querySelectorAll('[data-attempt-mistake]')).toHaveLength(0)
+  })
+
+  it('全對的模擬考歷史明確顯示沒有錯誤或未作答', () => {
+    const chapters = Array.from({ length: 10 }, (_, index) => ({ chapter: index + 1, total: 10, answered: 10, correct: 10 }))
+    localStorage.setItem('rent-exam-history-v1', JSON.stringify({
+      version: 2,
+      answered: 100,
+      correct: 100,
+      wrongKeys: [],
+      recordedExamIds: ['attempt-perfect1'],
+      chapterStats: {},
+      mockAttempts: [{ attemptId: 'attempt-perfect1', completedAt: 1_000, bankKey: 'withLaw', correct: 100, total: 100, chapters, mistakes: [] }],
+    }))
+
+    mount(examQuestions, 'mock')
+    document.querySelector<HTMLElement>('.attempt-card summary')!.click()
+
+    expect(document.body.textContent).toContain('本次沒有錯誤或未作答題目')
+    expect(document.querySelectorAll('[data-attempt-mistake]')).toHaveLength(0)
   })
 
   it('舊版 history 與進行中的 version 1 模擬考可跨更新 reload 後交卷', () => {

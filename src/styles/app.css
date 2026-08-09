@@ -103,6 +103,17 @@ select { width: 100%; max-width: 100%; min-height: 44px; border: 1px solid #a8b8
 .results ul { padding-left: 1.2rem; }
 .result-item { padding: 1rem 0; border-top: 1px solid #e1d8ca; }
 .result-item h3 { margin: .35rem 0 .7rem; font-size: 1rem; }
+.result-status { color: #425568; font-weight: 800; }
+.answer-comparison { display: grid; grid-template-columns: 1fr; gap: .65rem; margin: .8rem 0; }
+.answer-comparison-row { display: grid; grid-template-columns: minmax(6rem, auto) minmax(0, 1fr); gap: .65rem; align-items: start; padding: .75rem; border: 1px solid; border-radius: 10px; }
+.answer-comparison-row dt { font-weight: 900; }
+.answer-comparison-row dd { display: flex; align-items: flex-start; gap: .55rem; min-width: 0; }
+.answer-comparison-row dd b { display: grid; place-items: center; flex: 0 0 1.65rem; width: 1.65rem; height: 1.65rem; border-radius: 50%; }
+.answer-comparison-row dd span { min-width: 0; overflow-wrap: anywhere; }
+.selected-answer { color: #843535; border-color: #e0aaaa; background: #fff2f0; }
+.selected-answer dd b { color: #fff; background: #a83b3b; }
+.correct-answer { color: #175e3b; border-color: #9acdaf; background: #edf9f1; }
+.correct-answer dd b { color: #fff; background: #26764e; }
 .history-panel h2, .history-panel h3 { margin-bottom: .65rem; color: var(--track-deep); }
 .history-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 1rem; }
 .history-heading > div { flex: 1 1 18rem; }
@@ -122,6 +133,16 @@ select { width: 100%; max-width: 100%; min-height: 44px; border: 1px solid #a8b8
 .attempt-card summary span { flex: 1 1 17rem; }
 .attempt-card[open] summary { border-bottom: 1px solid #d8e2ea; }
 .attempt-card .performance-grid { margin: .85rem; }
+.attempt-review { margin: 0 .85rem .85rem; padding-top: .9rem; border-top: 1px solid #d8e2ea; }
+.attempt-review h4 { margin: 0 0 .35rem; color: var(--track-deep); font-size: 1.05rem; }
+.history-detail-note { margin: 0 0 .85rem; color: var(--track-muted); }
+.history-detail-note.success { color: #17643d; font-weight: 800; }
+.attempt-mistake-list { display: grid; gap: .85rem; }
+.attempt-mistake { min-width: 0; padding: 1rem; border: 1px solid #e0c6bd; border-left: 5px solid #b74444; border-radius: 12px; background: #fffdfa; overflow-wrap: anywhere; }
+.attempt-mistake h5 { margin: .4rem 0 .7rem; color: #243746; font-size: 1rem; line-height: 1.55; }
+.attempt-mistake .explanation { margin-bottom: 0; }
+.attempt-mistake .explanation strong { display: block; margin-bottom: .3rem; }
+.attempt-mistake .explanation p { margin: 0; }
 .wrong-chapter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .8rem; }
 .wrong-chapter-card { padding: 1rem; border: 1px solid #d8e2ea; border-radius: 14px; background: #fbfcfd; }
 .wrong-chapter-card h3 { margin: 0 0 .5rem; color: var(--track-deep); }
@@ -150,6 +171,7 @@ dl { display: grid; grid-template-columns: 1fr auto; gap: .6rem; } dt, dd { marg
 .question-bank-source .question-bank-disclaimer { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid #d8e2ea; }
 .question-bank-about { display: inline-block; margin-top: .65rem; color: var(--track-link); font-weight: 800; text-underline-offset: .16em; }
 .single-column { width: min(720px, 100%); margin: 0 auto; padding: clamp(1rem, 4vw, 2rem); }
+.result-page { width: min(920px, 100%); margin: 0 auto; padding: clamp(1rem, 4vw, 2rem); }
 .site-footer { width: min(720px, 100%); margin: 0 auto; padding: .25rem 1rem 2rem; color: var(--track-muted); text-align: center; }
 .site-footer p { margin: 0; font-size: .84rem; }
 .site-footer a { color: var(--track-link); font-weight: 800; text-underline-offset: .16em; }
@@ -228,6 +250,10 @@ dl { display: grid; grid-template-columns: 1fr auto; gap: .6rem; } dt, dd { marg
 .track-choice-actions .track-init-button:active { color: #fff; border-color: #174f78; background: #174f78; box-shadow: inset 0 2px 4px #092f4873; transform: translateY(1px); transition-duration: 0s; }
 .track-choice-actions .track-renew-button:active { color: #fff; border-color: #225f57; background: #225f57; box-shadow: inset 0 2px 4px #123d3773; transform: translateY(1px); transition-duration: 0s; }
 .load-error-message { margin: 1rem 0 0; padding: .75rem; color: #963838; border-radius: 8px; background: #fff0ed; font-weight: 700; }
+
+@media (max-width: 480px) {
+  .answer-comparison-row { grid-template-columns: 1fr; }
+}
 
 @media (min-width: 760px) {
   .brand strong, .brand small { display: block; }

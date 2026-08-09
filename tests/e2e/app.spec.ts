@@ -257,6 +257,142 @@ test('模擬考使用獨立路由且交卷後可返回練習首頁', async ({ pa
   await expect(page.locator('[data-question-key]')).toBeVisible()
 })
 
+test('模擬考錯題於本次結果與歷史 attempt 顯示作答、正解及說明', async ({ page }) => {
+  await selectBankAtEntry(page)
+  await page.goto(mockPath)
+  await page.getByRole('button', { name: '開始模擬考' }).click()
+
+  const answer = await page.evaluate(async () => {
+    const session = JSON.parse(localStorage.getItem('rent-exam-session-v1')!)
+    const questions = await fetch('/data/questions_with_law.json').then((response) => response.json())
+    const key = session.questionKeys[0]
+    const question = questions.find((item: { chapter_no: number; section_no: number; question_no: number }) =>
+      `c${item.chapter_no}-s${item.section_no}-q${item.question_no}` === key)
+    const labels = ['A', 'B', 'C', 'D']
+    const order = session.optionOrders[key] as string[]
+    const correctDisplayed = labels[order.indexOf(question.answer)]
+    const selectedDisplayed = labels.find((label) => label !== correctDisplayed)!
+    const selectedSource = order[labels.indexOf(selectedDisplayed)]
+    return {
+      key,
+      selectedDisplayed,
+      selectedSource,
+      selectedText: question.options.find((option: { id: string }) => option.id === selectedSource).text,
+      correctDisplayed,
+      correctSource: question.answer,
+      correctText: question.options.find((option: { id: string }) => option.id === question.answer).text,
+      explanation: question.law_reference,
+    }
+  })
+
+  await page.locator(`[data-option="${answer.selectedDisplayed}"]`).click()
+  await page.getByRole('button', { name: '交卷' }).click()
+  await page.getByRole('button', { name: '確認交卷' }).click()
+
+  const result = page.locator(`.result-item[data-question-key="${answer.key}"]`)
+  await expect(result.locator('[data-answer-kind="selected"]')).toContainText(`你的作答${answer.selectedDisplayed}${answer.selectedText}`)
+  await expect(result.locator('[data-answer-kind="correct"]')).toContainText(`正確答案${answer.correctDisplayed}${answer.correctText}`)
+  await result.getByRole('button', { name: '查看詳解' }).click()
+  await expect(result.locator('.explanation')).toContainText(answer.explanation)
+  const resultGeometry = await page.evaluate(() => {
+    const layout = document.querySelector<HTMLElement>('.result-page')!.getBoundingClientRect()
+    const card = document.querySelector<HTMLElement>('.result-page .results')!.getBoundingClientRect()
+    const comparison = document.querySelector<HTMLElement>('.result-page .answer-comparison-row')!
+    return {
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      layout: { left: layout.left, right: layout.right, width: layout.width },
+      card: { left: card.left, right: card.right },
+      comparisonColumns: getComputedStyle(comparison).gridTemplateColumns.split(' ').filter(Boolean).length,
+    }
+  })
+  expect(resultGeometry.documentWidth).toBeLessThanOrEqual(resultGeometry.viewportWidth)
+  expect(resultGeometry.layout.left).toBeGreaterThanOrEqual(-1)
+  expect(resultGeometry.layout.right).toBeLessThanOrEqual(resultGeometry.viewportWidth + 1)
+  expect(resultGeometry.card.left).toBeGreaterThanOrEqual(-1)
+  expect(resultGeometry.card.right).toBeLessThanOrEqual(resultGeometry.viewportWidth + 1)
+  if (resultGeometry.viewportWidth >= 760) {
+    expect(resultGeometry.layout.width).toBeGreaterThan(800)
+    expect(resultGeometry.layout.width).toBeLessThanOrEqual(921)
+    expect(resultGeometry.comparisonColumns).toBe(2)
+  } else {
+    expect(resultGeometry.layout.width).toBeGreaterThanOrEqual(resultGeometry.viewportWidth - 1)
+    expect(resultGeometry.comparisonColumns).toBe(1)
+  }
+
+  const storedMistake = await page.evaluate((key) => {
+    const history = JSON.parse(localStorage.getItem('rent-exam-history-v1')!)
+    return {
+      attempt: history.mockAttempts[0],
+      mistake: history.mockAttempts[0].mistakes.find((item: { key: string }) => item.key === key),
+    }
+  }, answer.key)
+  expect(storedMistake.attempt).not.toHaveProperty('questionKeys')
+  expect(storedMistake.mistake).toMatchObject({
+    questionFingerprint: expect.stringMatching(/^q1-[0-9a-f]{8}$/),
+    selectedOptionId: answer.selectedSource,
+    displayedSelectedOptionId: answer.selectedDisplayed,
+    correctOptionId: answer.correctSource,
+    displayedCorrectOptionId: answer.correctDisplayed,
+  })
+
+  await page.goto(mockPath)
+  await page.locator('.attempt-card summary').first().click()
+  const historicalMistake = page.locator(`[data-attempt-mistake][data-question-key="${answer.key}"]`)
+  await expect(historicalMistake).toContainText(`你的作答${answer.selectedDisplayed}${answer.selectedText}`)
+  await expect(historicalMistake).toContainText(`正確答案${answer.correctDisplayed}${answer.correctText}`)
+  await expect(historicalMistake.locator('.explanation')).toContainText(answer.explanation)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  await page.goto(homePath)
+  await page.getByRole('button', { name: '只有答案題庫' }).click()
+  await page.goto(mockPath)
+  await page.locator('.attempt-card summary').first().click()
+  const crossBankMistake = page.locator(`[data-attempt-mistake][data-question-key="${answer.key}"]`)
+  await expect(crossBankMistake.locator('.explanation')).toContainText(answer.explanation)
+})
+
+test('歷史題目同 key 但內容更新時安全降級，不混用新題庫與舊作答', async ({ page, context }) => {
+  await selectBankAtEntry(page)
+  await page.goto(mockPath)
+  await page.getByRole('button', { name: '開始模擬考' }).click()
+  const answer = await page.evaluate(async () => {
+    const session = JSON.parse(localStorage.getItem('rent-exam-session-v1')!)
+    const questions = await fetch('/data/questions_with_law.json').then((response) => response.json())
+    const key = session.questionKeys[0]
+    const question = questions.find((item: { chapter_no: number; section_no: number; question_no: number }) =>
+      `c${item.chapter_no}-s${item.section_no}-q${item.question_no}` === key)
+    const labels = ['A', 'B', 'C', 'D']
+    const order = session.optionOrders[key] as string[]
+    const correctDisplayed = labels[order.indexOf(question.answer)]
+    return { key, selectedDisplayed: labels.find((label) => label !== correctDisplayed)! }
+  })
+  await page.locator(`[data-option="${answer.selectedDisplayed}"]`).click()
+  await page.getByRole('button', { name: '交卷' }).click()
+  await page.getByRole('button', { name: '確認交卷' }).click()
+
+  const bankResponse = await page.request.get(withLawUrl)
+  const changedBank = await bankResponse.json()
+  const changedQuestion = changedBank.find((item: { chapter_no: number; section_no: number; question_no: number }) =>
+    `c${item.chapter_no}-s${item.section_no}-q${item.question_no}` === answer.key)
+  changedQuestion.question = '不應冒充為當次內容的新題幹'
+  await page.evaluate(async () => {
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    await Promise.all(registrations.map((registration) => registration.unregister()))
+    await Promise.all((await caches.keys()).map((key) => caches.delete(key)))
+  })
+  await context.route(`**${withLawUrl}`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(changedBank) }))
+  await page.close()
+
+  const historyPage = await context.newPage()
+  await historyPage.goto(mockPath)
+  await historyPage.locator('.attempt-card summary').first().click()
+  const degraded = historyPage.locator(`[data-attempt-mistake][data-question-key="${answer.key}"]`)
+  await expect(degraded).toContainText('內容已更新')
+  await expect(degraded).not.toContainText('不應冒充為當次內容的新題幹')
+  await expect(degraded.locator('[data-answer-kind]')).toHaveCount(0)
+})
+
 test('模擬考 reload 後保留題序、選項排列、目前題號、答案與原始倒數', async ({ page }) => {
   await selectBankAtEntry(page)
   await page.goto(mockPath)
@@ -501,6 +637,15 @@ test('題庫載入失敗後可回到選擇畫面', async ({ page }) => {
   await page.getByRole('link', { name: '返回入口' }).click()
   await expect(page.getByRole('heading', { name: '選擇題庫版本' })).toBeVisible()
   await expect(page.getByRole('button', { name: '只有答案題庫' })).toBeVisible()
+})
+
+test('歷史用的另一題庫暫時失敗時，不阻擋目前題庫開始模擬考', async ({ page }) => {
+  await page.route(`**${withoutLawUrl}`, (route) => route.fulfill({ status: 503, body: '暫時無法使用' }))
+  await selectBankAtEntry(page)
+  await page.goto(mockPath)
+
+  await expect(page.getByRole('button', { name: '開始模擬考' })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('題目註記載入失敗時 fail closed', async ({ page }) => {

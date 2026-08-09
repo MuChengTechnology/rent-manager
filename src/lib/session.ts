@@ -47,6 +47,28 @@ const isAnswer = (value: unknown): value is string => typeof value === 'string' 
 const isAttemptId = (value: unknown): value is string => typeof value === 'string' && /^attempt-[A-Za-z0-9_-]{8,80}$/.test(value)
 const isSafeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0
 
+function contentHash(content: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+export function questionContentSignature(question: Question): string {
+  const content = [
+    questionKey(question),
+    question.question,
+    question.answer,
+    ...[...question.options]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .flatMap((option) => [option.id, option.text]),
+    question.law_reference ?? '',
+  ].join('\u001f')
+  return `q1-${contentHash(content)}`
+}
+
 export function questionBankSignature(questions: Question[], context = ''): string {
   const content = `${context}\u001d${[...questions]
     .sort((left, right) => questionKey(left).localeCompare(questionKey(right)))
@@ -59,12 +81,7 @@ export function questionBankSignature(questions: Question[], context = ''): stri
     ].join('\u001f'))
     .join('\u001e')}`
 
-  let hash = 0x811c9dc5
-  for (let index = 0; index < content.length; index += 1) {
-    hash ^= content.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193) >>> 0
-  }
-  return `${questions.length}-${hash.toString(16).padStart(8, '0')}`
+  return `${questions.length}-${contentHash(content)}`
 }
 
 export function parseStoredSession(value: unknown): StoredSession | null {
