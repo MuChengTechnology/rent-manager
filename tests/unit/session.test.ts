@@ -64,6 +64,7 @@ describe('中斷續作 session contract', () => {
 
     for (const changed of changedQuestions) expect(questionContentSignature(changed)).not.toBe(signature)
     expect(questionContentSignature({ ...original, options: [...original.options].reverse() })).toBe(signature)
+    expect(questionContentSignature(original, '更新後題目註記')).not.toBe(signature)
   })
 
   it('以 stable key 還原題目順序與目前作答狀態', () => {

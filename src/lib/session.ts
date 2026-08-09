@@ -56,8 +56,9 @@ function contentHash(content: string): string {
   return hash.toString(16).padStart(8, '0')
 }
 
-export function questionContentSignature(question: Question): string {
+export function questionContentSignature(question: Question, annotationContext = ''): string {
   const content = [
+    annotationContext,
     questionKey(question),
     question.question,
     question.answer,

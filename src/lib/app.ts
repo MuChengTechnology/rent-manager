@@ -34,6 +34,10 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
     key,
     new Map((bankQuestions ?? []).map((question) => [questionKey(question), question])),
   ])) as Partial<Record<BankKey, Map<string, Question>>>
+  const historicalQuestionFingerprint = (question: Question): string => {
+    const annotation = annotationsByKey.get(questionKey(question))
+    return questionContentSignature(question, annotation ? JSON.stringify(annotation) : '')
+  }
   const availableChapters = [...new Set(questions.map((question) => question.chapter_no))].sort((left, right) => left - right)
   const readCurrentHistory = () => {
     const history = readHistory(historyKey)
@@ -190,7 +194,7 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
           chapter: question.chapter_no,
           answered: Boolean(displayedSelectedOptionId),
           correct: Boolean(displayedSelectedOptionId) && displayedSelectedOptionId === question.answer,
-          questionFingerprint: sourceQuestion ? questionContentSignature(sourceQuestion) : undefined,
+          questionFingerprint: sourceQuestion ? historicalQuestionFingerprint(sourceQuestion) : undefined,
           selectedOptionId,
           displayedSelectedOptionId,
           correctOptionId: correctOptionId ?? question.answer,
@@ -215,7 +219,7 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
     const bankQuestions = historicalQuestionsByBank[attempt.bankKey]
     return `<section class="attempt-review"><h4>該次錯誤題目回顧</h4><p class="history-detail-note">共 ${attempt.mistakes.length} 題答錯或未作答；以下依當次錯題順序列出。</p><div class="attempt-mistake-list">${attempt.mistakes.map((mistake) => {
       const question = bankQuestions?.get(mistake.key)
-      if (!question || mistake.questionFingerprint !== questionContentSignature(question)) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">題庫目前無法載入或內容已更新，這一題無法安全還原。</p></article>`
+      if (!question || mistake.questionFingerprint !== historicalQuestionFingerprint(question)) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">題庫目前無法載入或內容已更新，這一題無法安全還原。</p></article>`
       const selectedText = mistake.selectedOptionId ? question.options.find((option) => option.id === mistake.selectedOptionId)?.text ?? null : null
       const correctText = question.options.find((option) => option.id === mistake.correctOptionId)?.text
       if ((mistake.selectedOptionId && !selectedText) || !correctText) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">題庫選項已更新，這一題目前無法安全還原。</p></article>`
