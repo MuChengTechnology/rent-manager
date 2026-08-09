@@ -44,6 +44,7 @@ const completeMockResults = Array.from({ length: 10 }, (_, chapterIndex) => {
         displayedSelectedOptionId: answered ? 'A' : null,
         correctOptionId: 'A',
         displayedCorrectOptionId: 'D',
+        sourceOptionOrder: ['B', 'C', 'D', 'A'],
       }),
     }
   })
@@ -123,12 +124,14 @@ describe('本機學習歷史', () => {
       questionFingerprint: 'q1-12345678',
       selectedOptionId: 'B', displayedSelectedOptionId: 'A',
       correctOptionId: 'A', displayedCorrectOptionId: 'D',
+      sourceOptionOrder: ['B', 'C', 'D', 'A'],
     })
     expect(recorded.mockAttempts[0].mistakes).toContainEqual({
       key: 'c2-s1-q9',
       questionFingerprint: 'q1-12345678',
       selectedOptionId: null, displayedSelectedOptionId: null,
       correctOptionId: 'A', displayedCorrectOptionId: 'D',
+      sourceOptionOrder: ['B', 'C', 'D', 'A'],
     })
     expect(parseHistory(recorded)).toEqual(recorded)
   })
@@ -154,6 +157,7 @@ describe('本機學習歷史', () => {
         questionFingerprint: 'q1-12345678',
         selectedOptionId: 'B', displayedSelectedOptionId: 'A',
         correctOptionId: 'A', displayedCorrectOptionId: 'D',
+        sourceOptionOrder: ['B', 'C', 'D', 'A'],
       }],
     })
 
@@ -171,6 +175,7 @@ describe('本機學習歷史', () => {
           questionFingerprint: 'q1-12345678',
           selectedOptionId: '<img>', displayedSelectedOptionId: 'A',
           correctOptionId: 'A', displayedCorrectOptionId: 'B',
+          sourceOptionOrder: ['B', 'C', 'D', 'A'],
         }],
       }],
     })
@@ -178,6 +183,21 @@ describe('本機學習歷史', () => {
     expect(repaired.mockAttempts).toHaveLength(1)
     expect(repaired.mockAttempts[0]).not.toHaveProperty('mistakes')
     expect(repaired.mockAttempts[0]).toMatchObject({ correct: 69, total: 100 })
+  })
+
+  it('逐題 detail 的當次 A-D source permutation 不完整或重複時一律捨棄', () => {
+    const recorded = recordMockAttempt(emptyHistory(), { ...mockAttempt, questionResults: completeMockResults })
+    const repaired = parseHistory({
+      ...recorded,
+      mockAttempts: [{
+        ...recorded.mockAttempts[0],
+        mistakes: recorded.mockAttempts[0].mistakes?.map((mistake, index) => index
+          ? mistake
+          : { ...mistake, sourceOptionOrder: ['A', 'A', 'C', 'D'] }),
+      }],
+    })
+
+    expect(repaired.mockAttempts[0]).not.toHaveProperty('mistakes')
   })
 
   it('逐題 detail 數量與分數不一致時保留摘要但捨棄不完整回顧', () => {

@@ -248,7 +248,7 @@ describe('租賃題庫操作介面', () => {
     expect(document.querySelector('[data-question-key]')!.getAttribute('data-question-key')).toBe('c1-s1-q1')
   })
 
-  it('模擬考鎖定百題、可切題並於交卷後顯示章節統計與收合詳解', () => {
+  it('模擬考鎖定百題、可切題並於交卷後顯示章節統計；未作答直接顯示說明', () => {
     mount(examQuestions, 'mock')
     expect(document.body.textContent).toContain('第 1 至第 10 章，每章各隨機抽取 10 題，共 100 題')
     expect(document.body.textContent).toContain('每次開始模擬考都會重新抽題')
@@ -266,9 +266,8 @@ describe('租賃題庫操作介面', () => {
     document.querySelector<HTMLButtonElement>('[data-action="confirm-submit-mock"]')!.click()
     expect(document.body.textContent).toContain('模擬考成績')
     expect(document.body.textContent).toContain('第 1 章')
-    expect(document.body.textContent).not.toContain('法源 1-1')
-    document.querySelector<HTMLButtonElement>('[data-action="toggle-result-explanation"]')!.click()
-    expect(document.body.textContent).toContain('法源')
+    expect(document.body.textContent).toContain('法源 1-1')
+    expect(document.querySelector('[data-action="toggle-result-explanation"]')).toBeNull()
   })
 
   it('模擬考重排選項與答案，並在 reload 後維持同一排列', () => {
@@ -294,7 +293,7 @@ describe('租賃題庫操作介面', () => {
     expect(JSON.parse(localStorage.getItem('rent-exam-history-v1')!).correct).toBe(1)
   })
 
-  it('模擬考答錯時以文字列出當次作答選項、正確選項與說明', () => {
+  it('模擬考答錯時以文字列出當次作答選項、正確選項與直接顯示的說明', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0)
     mount(examQuestions, 'mock')
     document.querySelector<HTMLButtonElement>('[data-action="start-mock"]')!.click()
@@ -311,8 +310,8 @@ describe('租賃題庫操作介面', () => {
     expect(result.querySelector('[data-answer-kind="correct"]')?.textContent).toContain('正確答案')
     expect(result.querySelector('[data-answer-kind="correct"]')?.textContent).toContain('D')
     expect(result.querySelector('[data-answer-kind="correct"]')?.textContent).toContain('正確')
-    result.querySelector<HTMLButtonElement>('[data-action="toggle-result-explanation"]')!.click()
-    expect(document.querySelector<HTMLElement>(`.result-item[data-question-key="${key}"]`)!.textContent).toContain('法源')
+    expect(result.textContent).toContain('法源')
+    expect(result.querySelector('[data-action="toggle-result-explanation"]')).toBeNull()
   })
 
   it('模擬考排除 ignore 題，且註記變更會更新 session fingerprint', () => {
@@ -385,9 +384,8 @@ describe('租賃題庫操作介面', () => {
     for (const item of duplicates) {
       const key = item.dataset.questionKey
       expect(key).toMatch(/^c1-s1-q[12]$/)
-      item.querySelector<HTMLButtonElement>('[data-action="toggle-result-explanation"]')!.click()
-      expect(document.querySelector<HTMLElement>(`.result-item[data-question-key="${key}"]`)!.textContent)
-        .toContain(`法源 1-${key!.endsWith('q1') ? '1' : '2'}`)
+      expect(item.querySelector('[data-action="toggle-result-explanation"]')).toBeNull()
+      expect(item.textContent).toContain(`法源 1-${key!.endsWith('q1') ? '1' : '2'}`)
     }
   })
 
@@ -457,6 +455,27 @@ describe('租賃題庫操作介面', () => {
     expect(cleared.mockAttempts).toEqual([])
     expect(cleared.wrongKeys).toHaveLength(1)
     expect(document.body.textContent).toContain('尚無模擬考紀錄')
+  })
+
+  it('歷史錯題的合法 A-D 排列遭語意竄改時，不顯示答案比較', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    mount(examQuestions, 'mock')
+    document.querySelector<HTMLButtonElement>('[data-action="start-mock"]')!.click()
+    clickOptionByText('錯誤')
+    document.querySelector<HTMLButtonElement>('[data-action="submit-mock"]')!.click()
+    document.querySelector<HTMLButtonElement>('[data-action="confirm-submit-mock"]')!.click()
+
+    const saved = JSON.parse(localStorage.getItem('rent-exam-history-v1')!)
+    const tampered = saved.mockAttempts[0].mistakes.find((item: { selectedOptionId: string | null }) => item.selectedOptionId)
+    tampered.sourceOptionOrder = ['A', 'B', 'C', 'D']
+    localStorage.setItem('rent-exam-history-v1', JSON.stringify(saved))
+
+    mount(examQuestions, 'mock')
+    document.querySelector<HTMLElement>('.attempt-card summary')!.click()
+    const unsafe = [...document.querySelectorAll<HTMLElement>('[data-attempt-mistake]')]
+      .find((item) => item.textContent?.includes('無法安全還原'))!
+    expect(unsafe).toBeTruthy()
+    expect(unsafe.querySelector('[data-answer-kind]')).toBeNull()
   })
 
   it('舊版模擬考摘要仍顯示章節統計，並提示未保存逐題作答', () => {

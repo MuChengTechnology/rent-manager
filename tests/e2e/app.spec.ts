@@ -292,8 +292,8 @@ test('模擬考錯題於本次結果與歷史 attempt 顯示作答、正解及�
   const result = page.locator(`.result-item[data-question-key="${answer.key}"]`)
   await expect(result.locator('[data-answer-kind="selected"]')).toContainText(`你的作答${answer.selectedDisplayed}${answer.selectedText}`)
   await expect(result.locator('[data-answer-kind="correct"]')).toContainText(`正確答案${answer.correctDisplayed}${answer.correctText}`)
-  await result.getByRole('button', { name: '查看詳解' }).click()
   await expect(result.locator('.explanation')).toContainText(answer.explanation)
+  await expect(result.getByRole('button', { name: '查看詳解' })).toHaveCount(0)
   const resultGeometry = await page.evaluate(() => {
     const layout = document.querySelector<HTMLElement>('.result-page')!.getBoundingClientRect()
     const card = document.querySelector<HTMLElement>('.result-page .results')!.getBoundingClientRect()
@@ -334,6 +334,7 @@ test('模擬考錯題於本次結果與歷史 attempt 顯示作答、正解及�
     displayedSelectedOptionId: answer.selectedDisplayed,
     correctOptionId: answer.correctSource,
     displayedCorrectOptionId: answer.correctDisplayed,
+    sourceOptionOrder: expect.arrayContaining(['A', 'B', 'C', 'D']),
   })
 
   await page.goto(mockPath)
@@ -388,9 +389,34 @@ test('歷史題目同 key 但內容更新時安全降級，不混用新題庫與
   await historyPage.goto(mockPath)
   await historyPage.locator('.attempt-card summary').first().click()
   const degraded = historyPage.locator(`[data-attempt-mistake][data-question-key="${answer.key}"]`)
-  await expect(degraded).toContainText('內容已更新')
+  await expect(degraded).toContainText('無法安全還原')
   await expect(degraded).not.toContainText('不應冒充為當次內容的新題幹')
   await expect(degraded.locator('[data-answer-kind]')).toHaveCount(0)
+})
+
+test('模擬考答錯時在桌機與手機直接顯示法源；只有答案題庫顯示固定說明', async ({ page }) => {
+  await selectBankAtEntry(page, '只有答案題庫')
+  await page.goto(mockPath)
+  await page.getByRole('button', { name: '開始模擬考' }).click()
+  const selectedDisplayed = await page.evaluate(async () => {
+    const session = JSON.parse(localStorage.getItem('rent-exam-session-v1')!)
+    const questions = await fetch('/data/questions_without_law.json').then((response) => response.json())
+    const key = session.questionKeys[0]
+    const question = questions.find((item: { chapter_no: number; section_no: number; question_no: number }) =>
+      `c${item.chapter_no}-s${item.section_no}-q${item.question_no}` === key)
+    const labels = ['A', 'B', 'C', 'D']
+    const correctDisplayed = labels[(session.optionOrders[key] as string[]).indexOf(question.answer)]
+    return labels.find((label) => label !== correctDisplayed)!
+  })
+
+  await page.locator(`[data-option="${selectedDisplayed}"]`).click()
+  await page.getByRole('button', { name: '交卷' }).click()
+  await page.getByRole('button', { name: '確認交卷' }).click()
+
+  const wrong = page.locator('.result-item').filter({ hasText: '✗ 答錯' }).first()
+  await expect(wrong.locator('.explanation')).toContainText('此題庫未提供說明。')
+  await expect(wrong.getByRole('button', { name: '查看詳解' })).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
 test('模擬考 reload 後保留題序、選項排列、目前題號、答案與原始倒數', async ({ page }) => {
@@ -758,7 +784,10 @@ test.describe('選擇有詳解題庫後的練習功能', () => {
     await page.locator('[data-action="confirm-submit-mock"]').click()
     await expect(page.getByRole('heading', { name: '模擬考成績' })).toBeVisible()
     await expect(page.getByText('第 1 章：')).toBeVisible()
-    await expect(page.locator('.explanation')).toHaveCount(0)
+    await expect(page.locator('.result-item .explanation')).toHaveCount(100)
+    const firstExplanation = page.locator('.result-item').first().locator('.explanation')
+    await expect(firstExplanation.getByText('說明', { exact: true })).toBeVisible()
+    await expect(firstExplanation.locator('p')).not.toHaveText('')
   })
 })
 

@@ -33,6 +33,7 @@ export interface MockAttemptMistake {
   displayedSelectedOptionId: string | null
   correctOptionId: string
   displayedCorrectOptionId: string
+  sourceOptionOrder: string[]
 }
 
 export interface History {
@@ -55,6 +56,7 @@ export interface MockQuestionResult {
   displayedSelectedOptionId?: string | null
   correctOptionId?: string
   displayedCorrectOptionId?: string
+  sourceOptionOrder?: string[]
 }
 
 export interface RecordMockAttemptInput {
@@ -87,6 +89,10 @@ const isAttemptId = (value: unknown): value is string => typeof value === 'strin
 const isBankKey = (value: unknown): value is BankKey => value === 'withLaw' || value === 'withoutLaw'
 const isOptionId = (value: unknown): value is string => typeof value === 'string' && /^[A-D]$/.test(value)
 const isQuestionFingerprint = (value: unknown): value is string => typeof value === 'string' && /^q1-[0-9a-f]{8}$/.test(value)
+const isSourceOptionOrder = (value: unknown): value is string[] => Array.isArray(value)
+  && value.length === 4
+  && new Set(value).size === 4
+  && value.every(isOptionId)
 
 export function emptyHistory(): History {
   return {
@@ -113,7 +119,7 @@ function parseMockChapter(value: unknown): MockChapterSummary | null {
 }
 
 function parseMockMistake(value: unknown): MockAttemptMistake | null {
-  if (!isRecord(value) || !isQuestionKey(value.key) || !isQuestionFingerprint(value.questionFingerprint) || !isOptionId(value.correctOptionId) || !isOptionId(value.displayedCorrectOptionId)) return null
+  if (!isRecord(value) || !isQuestionKey(value.key) || !isQuestionFingerprint(value.questionFingerprint) || !isOptionId(value.correctOptionId) || !isOptionId(value.displayedCorrectOptionId) || !isSourceOptionOrder(value.sourceOptionOrder)) return null
   const unanswered = value.selectedOptionId === null && value.displayedSelectedOptionId === null
   const answered = isOptionId(value.selectedOptionId) && isOptionId(value.displayedSelectedOptionId)
   if (!unanswered && !answered) return null
@@ -125,6 +131,7 @@ function parseMockMistake(value: unknown): MockAttemptMistake | null {
     displayedSelectedOptionId: value.displayedSelectedOptionId as string | null,
     correctOptionId: value.correctOptionId,
     displayedCorrectOptionId: value.displayedCorrectOptionId,
+    sourceOptionOrder: [...value.sourceOptionOrder],
   }
 }
 

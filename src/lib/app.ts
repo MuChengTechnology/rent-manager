@@ -199,6 +199,7 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
           displayedSelectedOptionId,
           correctOptionId: correctOptionId ?? question.answer,
           displayedCorrectOptionId: question.answer,
+          sourceOptionOrder: [...optionOrder],
         }
       }),
     }), historyKey)
@@ -213,13 +214,22 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
   }).join('')}</div>`
   const renderExplanation = (question: Question, action = 'toggle-explanation', open = explanationOpen) => question.law_reference ? `${button(action, open ? '收合詳解' : '查看詳解')} ${open ? `<aside class="explanation">${escapeHtml(question.law_reference)}</aside>` : ''}` : ''
   const renderAnswerComparison = (selectedLabel: string | null, selectedText: string | null, correctLabel: string, correctText: string) => `<dl class="answer-comparison" aria-label="作答與正確答案比較"><div class="answer-comparison-row selected-answer" data-answer-kind="selected"><dt>你的作答</dt><dd>${selectedLabel && selectedText ? `<b>${escapeHtml(selectedLabel)}</b><span>${escapeHtml(selectedText)}</span>` : '<strong>未作答</strong>'}</dd></div><div class="answer-comparison-row correct-answer" data-answer-kind="correct"><dt>正確答案</dt><dd><b>${escapeHtml(correctLabel)}</b><span>${escapeHtml(correctText)}</span></dd></div></dl>`
+  const renderDirectExplanation = (question: Question) => question.law_reference
+    ? `<aside class="explanation"><strong>說明</strong><p>${escapeHtml(question.law_reference)}</p></aside>`
+    : bankKey === 'withoutLaw' ? '<aside class="explanation"><strong>說明</strong><p>此題庫未提供說明。</p></aside>' : ''
   const renderHistoricalMistakes = (attempt: MockAttemptSummary) => {
     if (attempt.mistakes === undefined) return '<section class="attempt-review"><h4>該次錯誤題目回顧</h4><p class="history-detail-note">舊紀錄未保存逐題作答，章節統計仍可正常查看。</p></section>'
     if (!attempt.mistakes.length) return '<section class="attempt-review"><h4>該次錯誤題目回顧</h4><p class="history-detail-note success">本次沒有錯誤或未作答題目。</p></section>'
     const bankQuestions = historicalQuestionsByBank[attempt.bankKey]
     return `<section class="attempt-review"><h4>該次錯誤題目回顧</h4><p class="history-detail-note">共 ${attempt.mistakes.length} 題答錯或未作答；以下依當次錯題順序列出。</p><div class="attempt-mistake-list">${attempt.mistakes.map((mistake) => {
       const question = bankQuestions?.get(mistake.key)
+      const expectedSourceForDisplayed = (displayedOptionId: string) => mistake.sourceOptionOrder[OPTION_LABELS.indexOf(displayedOptionId as typeof OPTION_LABELS[number])]
+      const selectedMappingMatches = mistake.selectedOptionId === null
+        ? mistake.displayedSelectedOptionId === null
+        : mistake.displayedSelectedOptionId !== null && expectedSourceForDisplayed(mistake.displayedSelectedOptionId) === mistake.selectedOptionId
+      const correctMappingMatches = expectedSourceForDisplayed(mistake.displayedCorrectOptionId) === mistake.correctOptionId
       if (!question || mistake.questionFingerprint !== historicalQuestionFingerprint(question)) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">題庫目前無法載入或內容已更新，這一題無法安全還原。</p></article>`
+      if (mistake.correctOptionId !== question.answer || !selectedMappingMatches || !correctMappingMatches) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">無法安全還原。</p></article>`
       const selectedText = mistake.selectedOptionId ? question.options.find((option) => option.id === mistake.selectedOptionId)?.text ?? null : null
       const correctText = question.options.find((option) => option.id === mistake.correctOptionId)?.text
       if ((mistake.selectedOptionId && !selectedText) || !correctText) return `<article class="attempt-mistake" data-attempt-mistake data-question-key="${escapeHtml(mistake.key)}"><p class="feedback error">題庫選項已更新，這一題目前無法安全還原。</p></article>`
@@ -293,7 +303,7 @@ export function initRentApp(root: HTMLElement, questions: Question[], options: I
       const status = isCorrect
         ? `你的答案：${selected}；正確答案：${question.answer}・✓ 正確`
         : selected ? '✗ 答錯' : '— 未作答'
-      return `<article class="result-item" data-question-key="${key}"><p class="result-status">第 ${index + 1} 題・${status}</p>${renderQuestionAnnotation(annotation)}<h3>${escapeHtml(annotateQuestionText(question, annotation))}</h3>${comparison}${renderExplanation(question, 'toggle-result-explanation', open)}</article>`
+      return `<article class="result-item" data-question-key="${key}"><p class="result-status">第 ${index + 1} 題・${status}</p>${renderQuestionAnnotation(annotation)}<h3>${escapeHtml(annotateQuestionText(question, annotation))}</h3>${comparison}${isCorrect ? renderExplanation(question, 'toggle-result-explanation', open) : renderDirectExplanation(question)}</article>`
     }).join('')}</section></main>`
     bind()
   }
