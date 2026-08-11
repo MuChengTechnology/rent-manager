@@ -6,6 +6,14 @@
 
 本工具是由**沐承科技有限公司**提供的公開免費服務；原創程式碼於 [MuChengTechnology/rent-manager](https://github.com/MuChengTechnology/rent-manager) 公開，並採用 [MIT License](LICENSE) 授權。官方題庫與第三方內容不因本專案授權而改變其權利歸屬。
 
+## 版本與發布
+
+- 最新公開版本：[v0.1.0](https://github.com/MuChengTechnology/rent-manager/releases/tag/v0.1.0)
+- 重大變更：[CHANGELOG.md](CHANGELOG.md)
+- Git tag 使用 `vMAJOR.MINOR.PATCH`；`package.json` 使用不含 `v` 的相同版本號。
+
+版本發布不改變官方題庫及第三方內容的權利歸屬。題庫內容仍以官方最新公告為準。
+
 ## 先備條件
 
 - Node.js（建議使用目前仍受支援的 LTS 版本）
