@@ -27,7 +27,7 @@
     "@types/node": "^24.13.3",
     "jsdom": "^27.4.0",
     "typescript": "^5.9.3",
-    "vite": "8.1.5",
+    "vite": "8.2.0",
     "vitest": "^4.1.0",
     "workbox-build": "^7.4.1",
     "wrangler": "^4.113.0"
